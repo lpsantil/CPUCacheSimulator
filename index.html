@@ -1,0 +1,797 @@
+<!--
+  -- Copyright 2006, 2015 Louis P. Santillan. All rights reserved.
+  --
+  -- Redistribution and use in source and binary forms, with or
+  -- without modification, are permitted provided that the following
+  -- conditions are met:
+  --
+  -- * Redistributions of source code must retain the above copyright
+  -- notice, this list of conditions and the following disclaimer.
+  --
+  -- Redistributions in binary form must reproduce the above copyright
+  -- notice, this list of conditions and the following disclaimer
+  -- in the documentation and/or other materials provided with the
+  -- distribution.
+  --
+  -- THIS SOFTWARE IS PROVIDED BY LOUIS P. SANTILLAN "AS IS"
+  -- AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+  -- TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+  -- PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL LOUIS P.
+  -- SANTILLAN OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+  -- INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+  -- (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+  -- OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+  -- INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+  -- WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+  -- NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+  -- THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  -->
+<script language="JavaScript"><!--
+
+function bitsPer( x )
+{
+   return( Math.log( x ) / Math.log( 2 ) );
+}
+
+function Print( str )
+{
+   document.forms.inputs.results.value += str;
+}
+
+function Clear()
+{
+   document.forms.inputs.results.value = "";
+}
+
+function getTrace()
+{
+   // Fancy AJAX to yank the file from Dr. Dong's site
+   var form = document.forms.inputs,
+       traceListURL = form.URL.value;
+       traceListURL = form.URL.files[ 0 ];
+
+   form.addrTrace.value = "Downloading...";
+
+   makeRequest( traceListURL );
+}
+
+var http_request = false;
+
+function makeRequest( url )
+{
+   http_request = false;
+
+   // Mozilla & Safari
+   if( window.XMLHttpRequest )
+   {
+      try
+      {
+         http_request = new XMLHttpRequest();
+
+         // Get CORS permission
+         netscape.security.PrivilegeManager.
+            enablePrivilege( "UniversalBrowserRead" );
+
+
+         if( http_request.overrideMimeType )
+         {
+            http_request.overrideMimeType( 'text/plain' );
+            // See note below about this line
+         }
+
+         http_request.onreadystatechange = alertContents;
+         http_request.open( 'GET', url, true );
+         http_request.send( null );
+      }
+      catch( e )
+      {
+         alert( "Permission UniversalBrowserRead denied." );
+      }
+   }
+   else if( window.ActiveXObject )
+   {  // IE
+      try
+      {
+         http_request = new ActiveXObject( "Msxml2.XMLHTTP" );
+      }
+      catch( e )
+      {
+         try
+         {
+            http_request = new ActiveXObject( "Microsoft.XMLHTTP" );
+         }
+         catch( e )
+         {}
+      }
+
+      http_request.onreadystatechange = alertContents;
+      http_request.open( 'GET', url, true );
+      http_request.send( null );
+   }
+
+   if( !http_request )
+   {
+      alert( 'Giving up :( Cannot create an XMLHTTP instance' );
+
+      return false;
+   }
+}
+
+function getLocalTrace()
+{
+   var form = document.forms.inputs,
+       url = form.LocalFile.files[ 0 ];
+
+   form.addrTrace.value = "Downloading...";
+
+   var rdr = new FileReader();
+   rdr.onload = function( e )
+   {
+      document.forms.inputs.addrTrace.value = rdr.result;
+   };
+
+   var txt = rdr.readAsText( url );
+   
+}
+
+function alertContents()
+{
+   if( http_request.readyState == 4 )
+   {
+      if( http_request.status == 200 )
+      {
+         document.forms.inputs.addrTrace.value = http_request.responseText;
+      }
+      else
+      {
+         alert( 'There was a problem with the request.' );
+      }
+   }
+}
+
+//////////////////////////////////////////////////////////////////////
+
+function DirectMappedCache( cacheSize, wordsPerBlock, bytesPerWord,
+                            byteAddressSize )
+{
+   this.cacheType = "Direct Mapped";
+   this.cacheSize = cacheSize;
+   this.blocks = cacheSize / ( wordsPerBlock * bytesPerWord );
+   this.wordsPerBlock = wordsPerBlock;
+   this.bytesPerWord = bytesPerWord;
+   this.byteAddressSize = byteAddressSize;
+   this.blockSize = wordsPerBlock * bytesPerWord;
+   this.bitsPerByteOffset = bitsPer( bytesPerWord );
+   this.bitsPerBlockOffset = bitsPer( wordsPerBlock );
+   this.bitsPerIndex = bitsPer( this.blocks );
+   this.bitsPerTag =
+      byteAddressSize - this.bitsPerIndex - this.bitsPerBlockOffset -
+         this.bitsPerByteOffset;
+   this.tagShift = byteAddressSize - this.bitsPerTag;
+   this.traceLength =
+      this.hitCount =
+      this.M1Count =
+      this.M2Count =
+      this.M3Count = 0;
+   this.hitMissList = "";
+   this.blockAddr = null;
+
+   Clear();
+
+   Print(
+      "Started: " + ( new Date() ).toString() + "\n" +
+      "cacheType: " + this.cacheType + "\n" + 
+      "cacheSize: " + this.cacheSize + "\n" +
+      "blocks: " + this.blocks + "\n" +
+      "wordsPerBlock: " + this.wordsPerBlock + "\n" +
+      "bytesPerWord: " + this.bytesPerWord + "\n" +
+      "byteAddressSize: " + this.byteAddressSize + "\n" +
+      "blockSize: " + this.blockSize + "\n" +
+      "bitsPerByteOffset: " + this.bitsPerByteOffset + "\n" +
+      "bitsPerBlockOffset: " + this.bitsPerBlockOffset + "\n" +
+      "bitsPerIndex: " + this.bitsPerIndex + "\n" +
+      "bitsPerTag: " + this.bitsPerTag + "\n" +
+      "tagShift: " + this.tagShift + "\n" );
+
+   this.hasMemBlockBeenLoaded =
+      new Array( this.blocks );
+   for( var i = 0; i < this.blocks; i++ )
+   {
+      this.hasMemBlockBeenLoaded[ i ] = false;
+   }
+
+   this.cache = new Array( this.blocks );
+   for( var i = 0; i < this.blocks; i++ )
+   {
+      this.cache[ i ] =
+         new DirectMappedCacheBlock();
+   }
+
+   this.processTrace = function()
+   {
+      var traceList = document.forms.inputs.addrTrace.value.
+                         replace( /(\s$|^\s)/, "" ).split( "\n" ),
+          traceLength = this.traceLength = traceList.length;
+
+      for( var i = 0; i < traceLength; i++ )
+      {
+         var j = parseInt( traceList[ i ], 16 );
+
+         if( isNaN( j ) )
+         {
+            Print( "***ERROR*** Address at " + ( i + 1 ) +
+                   " [" + traceList[ i ] + "] is not a valid " +
+                   "hexadecimal address" );
+            return;
+         }
+         else
+         {
+            traceList[ i ] = j;
+         }
+      }
+      Print( "traceLength: " + traceLength + "\n" );
+
+      this.blockAddr = new Array( traceLength );
+      this.index = new Array( traceLength );
+      this.tag = new Array( traceLength );
+
+      Print( "Processing block addresses, indexes, and tags...\n" );
+      for( var i = 0; i < traceLength; i++ )
+      {
+         this.processMetaInfo( traceList[ i ], i );
+      }
+
+      Print( "Processing hit/misses...\n" );
+      for( var i = 0; i < traceLength; i++ )
+      {
+         this.isCacheHit( traceList[ i ], i );
+      }
+
+      var missRate = 100 * ( traceLength - this.hitCount ) /
+                     traceLength,
+          missRateInt = parseInt( missRate ),
+          missRateFrac = parseInt( ( missRate - missRateInt ) * 1000 );
+      Print( "Finished: " + ( new Date() ).toString() + "\n" +
+             "Miss Rate: " + missRateInt + "." + missRateFrac + "%\n" +
+             "H(" + this.hitCount + ") " +
+             "M1(" + this.M1Count + ") " +
+             "M2(" + this.M2Count + ") " +
+             "M3(" + this.M3Count + ")\n" +
+             this.hitMissList + "\n" );
+   }
+
+   this.processMetaInfo = function( memAddr, i )
+   {
+      this.blockAddr[ i ] = parseInt( memAddr / this.blockSize );
+      this.index[ i ] = this.blockAddr[ i ] % this.blocks,
+      this.tag[ i ] = memAddr >> this.tagShift;
+   }
+
+   this.isCacheHit = function( memAddr, i )
+   {
+      var blockAddr = this.blockAddr[ i ],
+          index = this.index[ i ],
+          tag = this.tag[ i ];
+
+      if( this.hitMissList.length != 0 )
+      {
+         this.hitMissList += ",";
+      }
+
+      // Do we have a possible cache hit?
+      if( this.cache[ index ].validBit )
+      {
+         // Do we have a cache hit?
+         if( this.cache[ index ].tag == tag )
+         {
+            this.hitCount++;
+            this.hitMissList += "H";
+         }
+         // Determine if it's an M1, M2 or M3
+         else
+         {
+            // Has the block been previously loaded?
+            if( this.hasMemBlockBeenLoaded[ blockAddr ] )
+            {
+               // It has, so it could be either an M2 or an M3
+               // Need a funky way to calculate distinct mem refs
+               var j, distinct = 0;
+
+               // find subset that contains all 
+               for( j = ( i - 1 ); j > 0; j-- )
+               {
+                  if( this.blockAddr[ j ] == this.blockAddr[ i ] )
+                  {
+                     break;
+                  }
+               }
+
+               // Determine uniqness
+               for( var k = ( j + 1 ); k < i; k++ )
+               {
+                  // We only count the first occurance of a mem ref
+                  if( this.blockAddr.indexOf( this.blockAddr[ k ], j ) == k )
+                  {
+                     distinct++;
+                  }
+               }
+
+               // M2 vs. M3 condition
+               if( distinct >= this.blocks )
+               {
+                  this.hasMemBlockBeenLoaded[ blockAddr ] = true;
+                  this.cache[ index ].update( tag );
+
+                  this.M2Count++;
+                  this.hitMissList += "M2";
+               }
+               else
+               {
+                  this.hasMemBlockBeenLoaded[ blockAddr ] = true;
+                  this.cache[ index ].update( tag );
+
+                  this.M3Count++;
+                  this.hitMissList += "M3";
+               }
+            }
+            // If the mem block hasn't been loaded, then we have an M1
+            else
+            {
+               this.hasMemBlockBeenLoaded[ blockAddr ] = true;
+               this.cache[ index ].update( tag );
+
+               this.M1Count++;
+               this.hitMissList += "M1";
+            }
+         }
+      }
+      // Definitely an M1 cache miss
+      else
+      {
+         this.hasMemBlockBeenLoaded[ blockAddr ] = true;
+         this.cache[ index ].update( tag );
+
+         this.M1Count++;
+         this.hitMissList += "M1";
+      }
+   }
+}
+
+function DirectMappedCacheBlock()
+{
+   this.validBit = false;
+   this.tag = 0;
+
+   this.update = function( tag )
+   {
+      this.validBit = true;
+      this.tag = tag;
+   }
+}
+
+//////////////////////////////////////////////////////////////////////
+
+function SetAssociativeCache( cacheSize, wordsPerBlock, bytesPerWord,
+                              byteAddressSize, associativity )
+{
+   this.cacheType = "Set Associative";
+   this.cacheSize = cacheSize;
+   this.associativity = associativity;
+   this.wordsPerBlock = wordsPerBlock;
+   this.bytesPerWord = bytesPerWord;
+   this.blocks = this.cacheSize / ( this.wordsPerBlock * this.bytesPerWord );
+   this.setsPerCache = cacheSize / ( wordsPerBlock * bytesPerWord * associativity );
+   this.byteAddressSize = byteAddressSize;
+   this.blockSize = this.wordsPerBlock * this.bytesPerWord;
+   this.bitsPerByteOffset = bitsPer( this.bytesPerWord );
+   this.bitsPerBlockOffset = bitsPer( this.wordsPerBlock );
+   this.bitsPerIndex = bitsPer( associativity );
+   this.bitsPerTag =
+      byteAddressSize - this.bitsPerIndex - this.bitsPerBlockOffset -
+      this.bitsPerByteOffset;
+   this.tagShift = byteAddressSize - this.bitsPerTag;
+   this.traceLength =
+      this.hitCount =
+      this.M1Count =
+      this.M2Count =
+      this.M3Count = 0;
+   this.hitMissList = "";
+   this.blockAddr = null;
+
+   Clear();
+
+   this.hasMemBlockBeenLoaded =
+      new Array( this.blocks );
+   for( var i = 0; i < this.blocks; i++ )
+   {
+      this.hasMemBlockBeenLoaded[ i ] = false;
+   }
+
+   this.cache = new Array( this.setsPerCache );
+   for( var i = 0; i < this.setsPerCache; i++ )
+   {
+      this.cache[ i ] = new SetAssociativeBlockSet( this.associativity );
+   }
+
+   this.ageTheSet = function( j )
+   {
+      for( var i = 0; i < this.associativity; i++ )
+      {
+         this.cache[ j ].cacheSet[ i ].age++;
+      }
+   }
+
+   this.processTrace = function()
+   {
+      Print(
+         "Started: " + ( new Date() ).toString() + "\n" +
+         "cacheType: " + this.cacheType + "\n" + 
+         "cacheSize: " + this.cacheSize + "\n" +
+         "associativity: " + this.associativity + "\n" +
+         "blocks: " + this.blocks + "\n" +
+         "setsPerCache: " + this.setsPerCache + "\n" +
+         "wordsPerBlock: " + this.wordsPerBlock + "\n" +
+         "bytesPerWord: " + this.bytesPerWord + "\n" +
+         "byteAddressSize: " + this.byteAddressSize + "\n" +
+         "blockSize: " + this.blockSize + "\n" +
+         "bitsPerByteOffset: " + this.bitsPerByteOffset + "\n" +
+         "bitsPerBlockOffset: " + this.bitsPerBlockOffset + "\n" +
+         "bitsPerIndex: " + this.bitsPerIndex + "\n" +
+         "bitsPerTag: " + this.bitsPerTag + "\n" +
+         "tagShift: " + this.tagShift + "\n" );
+
+      var traceList = document.forms.inputs.addrTrace.value.
+                         replace( /(\s$|^\s)/, "" ).split( "\n" ),
+          traceLength = this.traceLength = traceList.length;
+
+      for( var i = 0; i < traceLength; i++ )
+      {
+         var j = parseInt( traceList[ i ], 16 );
+
+         if( isNaN( j ) )
+         {
+            Print( "***ERROR*** Address at " + ( i + 1 ) +
+                   " [" + traceList[ i ] + "] is not a valid " +
+                   "hexadecimal address" );
+            return;
+         }
+         else
+         {
+            traceList[ i ] = j;
+         }
+      }
+      Print( "traceLength: " + traceLength + "\n" );
+
+      this.blockAddr = new Array( traceLength );
+      this.index = new Array( traceLength );
+      this.tag = new Array( traceLength );
+
+      Print( "Processing block addresses, indexes, and tags...\n" );
+      for( var i = 0; i < traceLength; i++ )
+      {
+         this.processMetaInfo( traceList[ i ], i );
+      }
+
+      Print( "Processing hit/misses...\n" );
+      for( var i = 0; i < traceLength; i++ )
+      {
+         this.isCacheHit( traceList[ i ], i );
+      }
+
+      var missRate = 100 * ( traceLength - this.hitCount ) /
+                     traceLength,
+          missRateInt = parseInt( missRate ),
+          missRateFrac = parseInt( ( missRate - missRateInt ) * 1000 );
+      Print( "Finished: " + ( new Date() ).toString() + "\n" +
+             "Miss Rate: " + missRateInt + "." + missRateFrac + "%\n" +
+             "H(" + this.hitCount + ") " +
+             "M1(" + this.M1Count + ") " +
+             "M2(" + this.M2Count + ") " +
+             "M3(" + this.M3Count + ")\n" +
+             this.hitMissList + "\n" );
+   }
+
+   this.processMetaInfo = function( memAddr, i )
+   {
+      this.blockAddr[ i ] = parseInt( memAddr / this.blockSize );
+      this.index[ i ] = this.blockAddr[ i ] % this.setsPerCache;
+      this.tag[ i ] = memAddr >> this.tagShift;
+   }
+
+   this.isCacheHit = function( memAddr, i )
+   {
+      var blockAddr = this.blockAddr[ i ],
+          index = this.index[ i ],
+          tag = this.tag[ i ];
+
+      if( this.hitMissList.length != 0 )
+      {
+         this.hitMissList += ",";
+      }
+
+      // Is the cache set not empty (possible  hit)?
+      if( this.cache[ index ].isNotEmpty() )
+      {
+         // Do we have a possible cache hit?
+         if( this.cache[ index ].isTagInSet( tag ) )
+         {
+            this.hitCount++;
+            this.hitMissList += "H";
+         }
+         // Determine if it's an M1, M2 or M3
+         else
+         {
+            // Has the block been previously loaded?
+            if( this.hasMemBlockBeenLoaded[ blockAddr ] )
+            {
+               // It has, so it could be either an M2 or an M3
+               // Need a funky way to calculate distinct mem refs
+               var j, distinct = 0;
+
+               // find subset that contains all 
+               for( j = ( i - 1 ); j > 0; j-- )
+               {
+                  if( this.blockAddr[ j ] == this.blockAddr[ i ] )
+                  {
+                     break;
+                  }
+               }
+
+               // Determine uniqness
+               for( var k = ( j + 1 ); k < i; k++ )
+               {
+                  // We only count the first occurance of a mem ref
+                  if( this.blockAddr.indexOf( this.blockAddr[ k ], j ) == k )
+                  {
+                     distinct++;
+                  }
+               }
+
+               // M2 vs. M3 condition
+               if( distinct >= this.blocks )
+               {
+                  this.hasMemBlockBeenLoaded[ blockAddr ] = true;
+                  this.cache[ index ].update( tag );
+
+                  this.M2Count++;
+                  this.hitMissList += "M2";
+               }
+               else
+               {
+                  this.hasMemBlockBeenLoaded[ blockAddr ] = true;
+                  this.cache[ index ].update( tag );
+
+                  this.M3Count++;
+                  this.hitMissList += "M3";
+               }
+            }
+            // If the mem block hasn't been loaded, then we have an M1
+            else
+            {
+               this.hasMemBlockBeenLoaded[ blockAddr ] = true;
+               this.cache[ index ].update( tag );
+
+               this.M1Count++;
+               this.hitMissList += "M1";
+            }
+         }
+      }
+      // Definitely an M1 cache miss
+      else
+      {
+         this.hasMemBlockBeenLoaded[ blockAddr ] = true;
+         this.cache[ index ].update( tag );
+
+         this.M1Count++;
+         this.hitMissList += "M1";
+      }
+
+      this.ageTheSet( index );
+   }
+}
+
+function SetAssociativeBlockSet( blocks )
+{
+   this.cacheSet = new Array( blocks );
+   this.blocksPerSet = blocks;
+
+   for( var i = 0; i < blocks; i++ )
+   {
+      this.cacheSet[ i ] = new SACacheBlock();
+   }
+
+   this.update = function( tag )
+   {
+      // Find first empty cache block
+      for( var i = 0; i < this.blocksPerSet; i++ )
+      {
+         // Find a free cache block
+         if( this.cacheSet[ i ].validBit == false )
+         {
+            this.cacheSet[ i ].update( tag );
+            return;
+         }
+      }
+
+      // All full, find oldest cache block
+      var oldest = 0,
+          j = -1;
+
+      for( var i = 0; i < this.blocksPerSet; i++ )
+      {
+         if( this.cacheSet[ i ].age > oldest )
+         {
+            oldest = this.cacheSet[ i ].age;
+            j = i;
+         }
+      }
+
+      this.cacheSet[ j ].update( tag );
+   }
+
+   this.isNotEmpty = function( j )
+   {
+      for( var i = 0; i < this.blocksPerSet; i++ )
+      {
+         if( this.cacheSet[ i ].validBit )
+         {
+            return( true );
+         }
+      }
+
+      return( false );
+   }
+
+   this.isTagInSet = function( tag )
+   {
+      // For all the blocks in the set...
+      for( var i = 0; i < this.blocksPerSet; i++ )
+      {
+         // Find the valid ones...
+         if( this.cacheSet[ i ].validBit )
+         {
+            // And check for a match
+            if( this.cacheSet[ i ].tag == tag )
+            {
+               this.cacheSet[ i ].age = 0;
+               return( true );
+            }
+         }
+      }
+
+      // Otherwise we have a miss
+      return( false );
+   }
+}
+
+function SACacheBlock()
+{
+   this.validBit = false;
+   this.tag = 0;
+   this.age = 0;
+
+   this.update = function( tag )
+   {
+      this.validBit = true;
+      this.tag = tag;
+      this.age = 0;
+   }
+}
+
+//////////////////////////////////////////////////////////////////////
+
+
+function main()
+{
+   Clear();
+
+   var f = document.forms.inputs,
+       cacheType = f.cacheType[ f.cacheType.selectedIndex ].value,
+       cacheSize = parseInt( f.cacheSize[ f.cacheSize.selectedIndex ].value ),
+       blockSize = parseInt( f.blockSize[ f.blockSize.selectedIndex ].value ),
+       assoc = parseInt( f.assoc[ f.assoc.selectedIndex ].value );
+
+   switch( cacheType )
+   {
+      case( "DirectMapped" ):
+      {
+         var DM =
+            new DirectMappedCache( cacheSize, blockSize, 4, 16 );
+
+         DM.processTrace();
+
+         break;
+      }
+      case( "SetAssociative" ):
+      {
+         var SA =
+            new SetAssociativeCache( cacheSize, blockSize, 4, 16, assoc );
+
+         SA.processTrace();
+
+         break;
+      }
+      case( "FullyAssociative" ):
+      {
+         var SA =
+            new SetAssociativeCache( cacheSize, blockSize, 4, 16,
+               cacheSize / ( blockSize * 4 ) );
+
+         SA.cacheType = "Fully Associative";
+
+         SA.processTrace();
+
+         break;
+      }
+      default:
+      {
+         break;
+      }
+   }
+}
+
+//--></script>
+<!------------------------------------------------------------------>
+<font face="Trebuchet MS" size="2">
+
+<h2>Cache Simulator</h2>
+<h3>Louis P. Santill&aacute;n<br>
+EE547A<br>
+Winter 2006</h3>
+<form name="inputs">
+Get Trace from URL:<input name="URL" size="40" type="file" onChange="javascript: getTrace();"><br>
+<br>
+Get Trace from local file:<input name="LocalFile" size="40" type="file" onChange="javascript: getTrace();"><br>
+
+<br>
+<table border="0" cellspacing="1" cellpadding="8" bgcolor="#000000">
+<tr>
+
+<td valign="top" bgcolor="#FFFFFF">Cache Type:<br>
+<select name="cacheType" size="3">
+<option selected value="DirectMapped">Direct Mapped</option>
+<option value="SetAssociative">Set Associative</option>
+<option value="FullyAssociative">Fully Associative</option></select></td>
+
+<td valign="top" bgcolor="#FFFFFF">Cache Size (Bytes):<br>
+<select name="cacheSize" size="3">
+
+<option selected value="64">64</option>
+<option value="128">128</option>
+<option value="256">256</option></select></td>
+
+<td valign="top" bgcolor="#FFFFFF">Block Size (words per block):<br>
+<select name="blockSize" size="3">
+<option selected value="1">1</option>
+<option value="2">2</option>
+<option value="4">4</option></select></td>
+
+<td valign="top" bgcolor="#FFFFFF">Associativity:<br>
+<select name="assoc" size="5">
+<option value="1">1-way</option>
+<option selected value="2">2-way</option>
+<option value="4">4-way</option>
+<option value="8">8-way</option>
+<option value="16">16-way</option></select></td>
+
+</tr>
+
+<tr>
+
+<td colspan="4" bgcolor="#FFFFFF">16-bit byte addresses and 4-byte
+words assumed in all cases</td>
+</tr>
+
+<tr>
+<td bgcolor="#FFFFFF">Trace:<br>
+<textarea name="addrTrace" cols="8" rows="20"></textarea></td>
+
+<td colspan="3" bgcolor="#FFFFFF">Results:<br>
+<textarea name="results" cols="60" rows="20"></textarea></td>
+</tr>
+
+</table><br>
+
+<input type="button" value="Process Trace" onClick="javascript: main();">
+</form>
+</font>
