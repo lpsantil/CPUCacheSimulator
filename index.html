@@ -43,6 +43,22 @@ function Clear()
    document.forms.inputs.results.value = "";
 }
 
+function Date2String( d )
+{
+   return( d.getFullYear() + "-" +
+           ( d.getMonth() + 1 ) + "-" +
+           d.getDate() + " " +
+           d.getHours() + ":" +
+           d.getMinutes() + ":" +
+           d.getSeconds() + ":" +
+           d.getMilliseconds() );
+}
+
+function diffDates( a, b )
+{
+   return( b.getTime() - a.getTime() );
+}
+
 function getTrace()
 {
    // Fancy AJAX to yank the file from Dr. Dong's site
@@ -178,8 +194,10 @@ function DirectMappedCache( cacheSize, wordsPerBlock, bytesPerWord,
 
    Clear();
 
+   var start = new Date();
+
    Print(
-      "Started: " + ( new Date() ).toString() + "\n" +
+      "Started: " + Date2String( start ) + "\n" +
       "cacheType: " + this.cacheType + "\n" + 
       "cacheSize: " + this.cacheSize + "\n" +
       "blocks: " + this.blocks + "\n" +
@@ -250,8 +268,10 @@ function DirectMappedCache( cacheSize, wordsPerBlock, bytesPerWord,
       var missRate = 100 * ( traceLength - this.hitCount ) /
                      traceLength,
           missRateInt = parseInt( missRate ),
-          missRateFrac = parseInt( ( missRate - missRateInt ) * 1000 );
-      Print( "Finished: " + ( new Date() ).toString() + "\n" +
+          missRateFrac = parseInt( ( missRate - missRateInt ) * 1000 ),
+          end = new Date();
+      Print( "Finished: " + Date2String( end ) + "\n" +
+             "Run time: " + diffDates( start, end ) + "ms\n" +
              "Miss Rate: " + missRateInt + "." + missRateFrac + "%\n" +
              "H(" + this.hitCount + ") " +
              "M1(" + this.M1Count + ") " +
@@ -423,8 +443,10 @@ function SetAssociativeCache( cacheSize, wordsPerBlock, bytesPerWord,
 
    this.processTrace = function()
    {
+      var start = new Date();
+
       Print(
-         "Started: " + ( new Date() ).toString() + "\n" +
+         "Started: " + Date2String( start ) + "\n" +
          "cacheType: " + this.cacheType + "\n" + 
          "cacheSize: " + this.cacheSize + "\n" +
          "associativity: " + this.associativity + "\n" +
@@ -481,8 +503,10 @@ function SetAssociativeCache( cacheSize, wordsPerBlock, bytesPerWord,
       var missRate = 100 * ( traceLength - this.hitCount ) /
                      traceLength,
           missRateInt = parseInt( missRate ),
-          missRateFrac = parseInt( ( missRate - missRateInt ) * 1000 );
-      Print( "Finished: " + ( new Date() ).toString() + "\n" +
+          missRateFrac = parseInt( ( missRate - missRateInt ) * 1000 ),
+          end = new Date();
+      Print( "Finished: " + Date2String( end ) + "\n" +
+             "Run time: " + diffDates( start, end ) + "ms\n" +
              "Miss Rate: " + missRateInt + "." + missRateFrac + "%\n" +
              "H(" + this.hitCount + ") " +
              "M1(" + this.M1Count + ") " +
@@ -739,7 +763,7 @@ function main()
 EE547A<br>
 Winter 2006</h3>
 <form name="inputs">
-Get Trace from URL:<input name="URL" size="40"><input type="button" value="Get Trace File via URL" onChange="javascript: getTrace();"><br>
+Get Trace from URL:<input name="URL" size="40"><input type="button" value="Get Trace via URL" onClick="javascript: getTrace();"><br>
 <br>
 Get Trace from local file:<input name="LocalFile" size="40" type="file" onChange="javascript: getLocalTrace();"><br>
 
@@ -778,8 +802,8 @@ Get Trace from local file:<input name="LocalFile" size="40" type="file" onChange
 
 <tr>
 
-<td colspan="4" bgcolor="#FFFFFF">16-bit byte addresses and 4-byte
-words assumed in all cases</td>
+<td colspan="4" bgcolor="#FFFFFF">16-bit hexadecimal addresses and 4-byte
+words assumed in all cases for trace file</td>
 </tr>
 
 <tr>
